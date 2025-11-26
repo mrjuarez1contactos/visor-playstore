@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, Save, Edit3, Calendar, User, RefreshCw, Clock } from 'lucide-react';
+import { Search, Save, Edit3, Calendar, User, RefreshCw, Clock, FileText, ArrowLeft, XCircle } from 'lucide-react';
 
-// ⚠️ VERIFICA TU URL (Debe terminar en /exec)
+// ⚠️ VERIFICA TU URL DE APPS SCRIPT
 const API_URL = "https://script.google.com/macros/s/AKfycbyV29a_POlzxLR9wdKTazoZts9I5oHVofEG8lsTduTqM_w8Js3k9uGhaOwvWZhuGK0r/exec"; 
 
 const formatFechaHora = (fechaRaw) => {
@@ -16,12 +16,21 @@ const formatFechaHora = (fechaRaw) => {
 };
 
 const App = () => {
+  // Estados Principales
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  
+  // Estados de Edición
   const [editingId, setEditingId] = useState(null);
   const [editValue, setEditValue] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // Estados de LECTURA (Nuevo)
+  const [viewMode, setViewMode] = useState('list'); // 'list' | 'reader'
+  const [readingFile, setReadingFile] = useState(null);
+  const [textContent, setTextContent] = useState('');
+  const [loadingText, setLoadingText] = useState(false);
 
   useEffect(() => { fetchData(); }, []);
 
@@ -31,7 +40,12 @@ const App = () => {
       const response = await fetch(`${API_URL}?action=read`);
       const json = await response.json();
       if (json.success) {
-        setFiles(json.data);
+        const sortedData = json.data.sort((a, b) => {
+             const dateA = String(a.fecha || '');
+             const dateB = String(b.fecha || '');
+             return dateB.localeCompare(dateA);
+        });
+        setFiles(sortedData);
       } else {
         console.error("Error API:", json.message);
       }
@@ -42,45 +56,59 @@ const App = () => {
     }
   };
 
-  // --- 🛠️ FUNCIÓN DE GUARDADO MEJORADA ---
   const handleSave = async (fileId) => {
     setSaving(true);
     try {
-      const payload = JSON.stringify({ 
-          action: 'update', 
-          id: fileId, 
-          resumen: editValue 
-      });
-
-      const response = await fetch(API_URL, { 
-          method: 'POST', 
-          // Enviamos como texto plano para que Google no bloquee por CORS
-          body: payload 
-      });
+      const payload = JSON.stringify({ action: 'update', id: fileId, resumen: editValue });
+      // Usamos fetch con body stringify simple para evitar CORS preflight complex
+      await fetch(API_URL, { method: 'POST', body: payload });
       
-      const result = await response.json();
-
-      if (result.success) {
-          // ✅ ÉXITO: Actualizamos la App
-          setFiles(prev => prev.map(f => {
-              if (f.id === fileId) return { ...f, resumen: editValue };
-              return f;
-          }));
-          setEditingId(null);
-          // alert("¡Guardado correctamente!"); // Opcional: quitar si molesta
-      } else {
-          // ❌ ERROR DEL SERVIDOR: Avisamos al usuario
-          alert(`NO SE GUARDÓ EN SHEETS.\nError: ${result.message}\nID Buscado: ${result.debug_id_buscado || 'N/A'}`);
-      }
-
+      setFiles(prev => prev.map(f => f.id === fileId ? { ...f, resumen: editValue } : f));
+      setEditingId(null);
     } catch (error) {
-      alert("Error de conexión. Revisa tu internet.");
-      console.error(error);
+      alert("Error de conexión al guardar.");
     } finally {
       setSaving(false);
     }
   };
 
+  // --- 📜 NUEVA FUNCIÓN: ABRIR LECTOR ---
+  const handleOpenReader = async (file) => {
+    if (!file.txt_id) {
+      alert("Este registro no tiene un archivo de texto asociado.");
+      return;
+    }
+    
+    setReadingFile(file);
+    setViewMode('reader');
+    setLoadingText(true);
+    setTextContent("");
+
+    try {
+      // Llamamos a la API pidiendo el texto
+      const response = await fetch(`${API_URL}?action=getText&id=${file.txt_id}`);
+      const json = await response.json();
+      
+      if (json.success) {
+        setTextContent(json.text);
+      } else {
+        setTextContent("❌ Error: No se pudo cargar el contenido.\n" + json.message);
+      }
+    } catch (error) {
+      setTextContent("❌ Error de conexión al intentar leer el archivo.");
+    } finally {
+      setLoadingText(false);
+    }
+  };
+
+  // --- 🔙 FUNCIÓN: CERRAR LECTOR ---
+  const handleCloseReader = () => {
+    setViewMode('list');
+    setReadingFile(null);
+    setTextContent("");
+  };
+
+  // Filtro seguro
   const filteredFiles = useMemo(() => {
     if (!searchTerm) return files;
     try {
@@ -94,6 +122,50 @@ const App = () => {
 
   const isGem = (text) => String(text || "").trim().startsWith('(GEM)');
 
+  // ==========================================
+  // 📺 VISTA: LECTOR DE TEXTO (PANTALLA 2)
+  // ==========================================
+  if (viewMode === 'reader' && readingFile) {
+    const { fecha, hora } = formatFechaHora(readingFile.fecha);
+    const displayName = readingFile.contacto || readingFile.id;
+
+    return (
+      <div className="min-h-screen bg-white font-sans flex flex-col">
+        {/* Header Lector */}
+        <div className="bg-white shadow-sm border-b border-gray-200 px-4 py-3 sticky top-0 z-20 flex items-center gap-3">
+          <button onClick={handleCloseReader} className="p-2 -ml-2 text-gray-600 hover:bg-gray-100 rounded-full">
+            <ArrowLeft size={24} />
+          </button>
+          <div className="flex-1 overflow-hidden">
+            <h2 className="text-lg font-bold text-gray-900 truncate">{displayName}</h2>
+            <p className="text-xs text-gray-500 flex items-center gap-1">
+              {fecha} {hora && `• ${hora}`}
+            </p>
+          </div>
+        </div>
+
+        {/* Contenido Texto */}
+        <div className="flex-1 p-4 overflow-y-auto bg-gray-50">
+          {loadingText ? (
+            <div className="flex flex-col items-center justify-center h-64 text-gray-400">
+              <RefreshCw size={32} className="animate-spin mb-3" />
+              <p>Descargando transcripción...</p>
+            </div>
+          ) : (
+            <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+              <pre className="whitespace-pre-wrap font-sans text-gray-700 text-sm leading-relaxed">
+                {textContent || "El archivo está vacío."}
+              </pre>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ==========================================
+  // 📺 VISTA: LISTA PRINCIPAL (PANTALLA 1)
+  // ==========================================
   return (
     <div className="min-h-screen bg-gray-100 font-sans pb-6">
       {/* HEADER */}
@@ -102,7 +174,7 @@ const App = () => {
           <h1 className="text-lg font-extrabold text-gray-900 flex items-center gap-2">
             📱 Visor de Negocio
           </h1>
-          <button onClick={fetchData} className="p-2 bg-blue-50 rounded-full text-blue-700">
+          <button onClick={fetchData} className="p-2 bg-blue-50 rounded-full text-blue-700 active:bg-blue-100">
             <RefreshCw size={20} className={loading ? "animate-spin" : ""} />
           </button>
         </div>
@@ -139,24 +211,18 @@ const App = () => {
                     <div className="flex items-center gap-2 bg-blue-100 self-start inline-flex px-2 py-1 rounded-md border border-blue-200">
                       <Calendar size={14} className="text-blue-800" />
                       <span className="text-blue-900 font-extrabold text-sm tracking-wide">{fecha}</span>
-                      {hora && (
-                        <>
-                          <span className="text-blue-300">|</span>
-                          <Clock size={14} className="text-blue-800" />
-                          <span className="text-blue-900 font-bold text-sm font-mono">{hora}</span>
-                        </>
-                      )}
+                      {hora && <span className="text-blue-900 font-bold text-sm font-mono border-l border-blue-300 pl-2 ml-1">{hora}</span>}
                     </div>
                   </div>
                   
                   {hasGem ? (
-                    <div className="flex flex-col items-center bg-orange-50 p-1 rounded border border-orange-100">
-                        <span className="h-3 w-3 rounded-full bg-orange-500 mb-1 shadow-sm animate-pulse"></span>
+                    <div className="flex flex-col items-center bg-orange-50 p-1 rounded border border-orange-100 min-w-[35px]">
+                        <span className="h-3 w-3 rounded-full bg-orange-500 mb-1 animate-pulse"></span>
                         <span className="text-[9px] font-black text-orange-700">REV</span>
                     </div>
                   ) : (
-                    <div className="flex flex-col items-center bg-green-50 p-1 rounded border border-green-100">
-                        <span className="h-3 w-3 rounded-full bg-green-500 mb-1 shadow-sm"></span>
+                    <div className="flex flex-col items-center bg-green-50 p-1 rounded border border-green-100 min-w-[35px]">
+                        <span className="h-3 w-3 rounded-full bg-green-500 mb-1"></span>
                         <span className="text-[9px] font-black text-green-700">OK</span>
                     </div>
                   )}
@@ -173,10 +239,10 @@ const App = () => {
                         autoFocus
                       />
                       <div className="flex gap-3">
-                        <button onClick={() => handleSave(file.id)} disabled={saving} className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold text-base flex justify-center items-center gap-2 shadow-lg shadow-blue-200 active:scale-95 transition-transform">
-                          {saving ? 'Guardando...' : <><Save size={18}/> GUARDAR</>}
+                        <button onClick={() => handleSave(file.id)} disabled={saving} className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold text-base shadow-lg active:scale-95 transition-transform">
+                          {saving ? 'Guardando...' : 'GUARDAR'}
                         </button>
-                        <button onClick={() => setEditingId(null)} className="px-4 py-3 bg-white border border-gray-300 text-gray-600 font-bold text-base rounded-lg active:bg-gray-100">Cancelar</button>
+                        <button onClick={() => setEditingId(null)} className="px-4 py-3 bg-white border border-gray-300 text-gray-600 font-bold text-base rounded-lg">Cancelar</button>
                       </div>
                     </div>
                   ) : (
@@ -184,9 +250,24 @@ const App = () => {
                       <p className={`text-sm whitespace-pre-wrap leading-relaxed cursor-pointer p-3 -m-2 rounded hover:bg-blue-50 transition-colors ${hasGem ? 'text-gray-900 font-medium' : 'text-gray-600'}`}>
                         {file.resumen || <span className="italic opacity-50 text-xs">(Toca para añadir notas...)</span>}
                       </p>
-                      <div className="mt-3 pt-2 border-t border-dashed border-gray-200 flex justify-end items-center">
-                         <span className="text-blue-600 text-xs font-bold flex items-center gap-1 bg-blue-50 px-2 py-1 rounded-full">
-                          <Edit3 size={12}/> Tocar para Editar
+                      
+                      {/* BARRA DE ACCIONES INFERIOR */}
+                      <div className="mt-4 pt-3 border-t border-dashed border-gray-200 flex justify-between items-center">
+                         {/* Botón VER TRANSCRIPCIÓN (Solo si hay TXT) */}
+                         {file.txt_id ? (
+                           <button 
+                             onClick={(e) => {
+                               e.stopPropagation(); // Evita que se abra el editor al hacer clic aquí
+                               handleOpenReader(file);
+                             }}
+                             className="text-blue-600 text-xs font-bold flex items-center gap-1 bg-blue-50 px-3 py-1.5 rounded-full border border-blue-100 active:bg-blue-200"
+                           >
+                             <FileText size={14}/> Ver Transcripción
+                           </button>
+                         ) : <span/>}
+
+                         <span className="text-gray-400 text-xs font-bold flex items-center gap-1">
+                          <Edit3 size={12}/> Editar
                         </span>
                       </div>
                     </div>
