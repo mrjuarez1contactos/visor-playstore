@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Search, Save, Edit3, Calendar, User, RefreshCw, Clock, FileText, ArrowLeft, XCircle } from 'lucide-react';
 
 // ⚠️ VERIFICA TU URL DE APPS SCRIPT
-const API_URL = "https://script.google.com/macros/s/AKfycbyV29a_POlzxLR9wdKTazoZts9I5oHVofEG8lsTduTqM_w8Js3k9uGhaOwvWZhuGK0r/exec"; 
+const API_URL = "https://script.google.com/macros/s/AKfycbyNCJnXaE_5APGZ7GFbIn6561E4YN7cNmrah_4BKiHK0zWUn-5WW8i-p22_Il0YfXbr/exec"; 
 
 const formatFechaHora = (fechaRaw) => {
   if (!fechaRaw) return { fecha: "S/F", hora: "" };
